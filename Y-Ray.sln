@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.28803.352
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Y-Ray", "Y-Ray\Y-Ray.csproj", "{B131FF88-0EDD-4413-95E5-E97B85B1A8B3}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VecMath", "..\VecMath\VecMath\VecMath.csproj", "{008F0133-2636-42A3-B17B-D0631C5132D6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B131FF88-0EDD-4413-95E5-E97B85B1A8B3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B131FF88-0EDD-4413-95E5-E97B85B1A8B3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B131FF88-0EDD-4413-95E5-E97B85B1A8B3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B131FF88-0EDD-4413-95E5-E97B85B1A8B3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{008F0133-2636-42A3-B17B-D0631C5132D6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{008F0133-2636-42A3-B17B-D0631C5132D6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{008F0133-2636-42A3-B17B-D0631C5132D6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{008F0133-2636-42A3-B17B-D0631C5132D6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {39AD9A98-D82F-43AF-B536-790C1036F92D}
+	EndGlobalSection
+EndGlobal
