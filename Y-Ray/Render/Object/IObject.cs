@@ -6,7 +6,8 @@ namespace YRay.Render.Object
     public interface IObject
     {
         AABoundingBox AABB { get; }
-        (float distance, Triangle tri, int material) DistanceToRay(Ray ray);
+
+        bool DistanceToRay(Ray ray, float minDistance, out Triangle tri, out float distance, out int material);
     }
 
     public class Mesh : IObject
@@ -15,23 +16,31 @@ namespace YRay.Render.Object
         public Triangle[] Triangles { get; }
         public Matrix4 Matrix { get; set; }
 
-        public (float distance, Triangle tri, int material) DistanceToRay(Ray ray)
+        public bool DistanceToRay(Ray ray, float minDistance, out Triangle tri, out float distance, out int material)
         {
-            float min = 1E+10F;
+            float min = minDistance;
             int idx = -1;
+
+            tri = new Triangle();
+            distance = minDistance;
+            material = 0;
 
             for (int i = 0; i < Triangles.Length; i++)
             {
-                var tri = Triangles[i];
-                float time = tri.CalculateTimeToIntersectWithRay(ray);
+                var tri_temp = Triangles[i];
+                float time = tri_temp.CalculateTimeToIntersectWithRay(ray);
 
-                if (min > time && time > 0 && tri.IsIntersectWithRay(ray))
+                if (min > time && time > 0 && tri_temp.IsIntersectWithRay(ray))
                 {
                     min = time;
                     idx = i;
+
+                    tri = tri_temp;
+                    distance = time;
+                    material = 0;
                 }
             }
-            return (min, Triangles[idx], 0);
+            return idx != -1;
         }
     }
 }
