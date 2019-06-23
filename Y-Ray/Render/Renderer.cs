@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using VecMath;
@@ -16,7 +17,7 @@ namespace YRay.Render
 
         public Scene Scene { get; } = new Scene();
 
-        public Size RenderSize { get; set; } = new Size(320, 180);
+        public Size RenderSize { get; set; } = new Size(1280, 720);
 
         public Renderer()
         {
@@ -24,15 +25,12 @@ namespace YRay.Render
             Scene.Camera.Aspect = (float)RenderSize.Height / RenderSize.Width;
         }
 
-        public Color RenderPixel(int x, int y)
+        public Vector3[,] RenderPixelBlock(Point start, Size blockSize)
         {
-            return Convert(Scene.Raytrace((x / (float)RenderSize.Width) * 2 - 1, -((y / (float)RenderSize.Height) * 2 - 1)));
+            float[] ua = Enumerable.Range(0, blockSize.Width).Select(x => ((start.X + x) / (float)RenderSize.Width) * 2 - 1).ToArray();
+            float[] va = Enumerable.Range(0, blockSize.Height).Select(y => ((start.Y + y) / (float)RenderSize.Height) * -2 + 1).ToArray();
 
-            Color Convert(Vector3 vec)
-            {
-                var col = VMath.Clamp(vec, Vector3.Zero, new Vector3(1, 1, 1));
-                return Color.FromArgb((int)(255 * col.x), (int)(255 * col.y), (int)(255 * col.z));
-            }
+            return Scene.RayTrace(ua, va);
         }
 
         public Bitmap Render()
@@ -44,25 +42,52 @@ namespace YRay.Render
 
             byte[] buf = new byte[RenderSize.Width * RenderSize.Height * 3];
 
-            //Parallel.For(0, RenderSize.Width * RenderSize.Height, PARALLEL_OPTION, i =>
-            for (int i = 0; i < RenderSize.Width * RenderSize.Height; i++)
+            var blockSize = new Size(16, 9);
+            var blockNum = new Size((int)Math.Ceiling((float)RenderSize.Width / blockSize.Width), (int)Math.Ceiling((float)RenderSize.Height / blockSize.Height));
+
+            object lockobj = new object();
+            int count = 0;
+
+            Parallel.For(0, blockNum.Width * blockNum.Height, i =>
             {
-                int x = i % RenderSize.Width;
-                int y = i / RenderSize.Width;
+                int block_x = i % blockNum.Width;
+                int block_y = i / blockNum.Width;
 
-                // Console.WriteLine(x + ", " + y);
+                //Console.WriteLine(block_x + ", " + block_y);
 
-                var color = RenderPixel(x, y);
+                int blockWidth = block_x == (blockNum.Width - 1) ? RenderSize.Width % blockSize.Width : blockSize.Width;
+                int blockHeight = block_y == (blockNum.Height - 1) ? RenderSize.Height % blockSize.Height : blockSize.Height;
 
-                //  lock (buf)
+                if (blockWidth == 0) blockWidth = blockSize.Width;
+                if (blockHeight == 0) blockHeight = blockSize.Height;
+
+                Vector3[,] colors = RenderPixelBlock(new Point(block_x * blockSize.Width, block_y * blockSize.Height), new Size(blockWidth, blockHeight));
+
+                lock(lockobj)
                 {
-                    buf[i * 3 + 0] = color.R;
-                    buf[i * 3 + 1] = color.G;
-                    buf[i * 3 + 2] = color.B;
+                    count += blockWidth * blockHeight;
+                    Console.WriteLine(count / (float)(blockNum.Width * blockNum.Height));
                 }
-                if (i % 100 == 0) Console.WriteLine(i / (float)(RenderSize.Width * RenderSize.Height));
-            }
-            // );
+
+                for (int x = 0; x < blockWidth; x++)
+                {
+                    for (int y = 0; y < blockHeight; y++)
+                    {
+                        int wolrd_x = block_x * blockSize.Width + x;
+                        int wolrd_y = block_y * blockSize.Height + y;
+                        int index = wolrd_x + wolrd_y * RenderSize.Width;
+
+                        var color = Convert(colors[x, y]);
+
+                        //  lock (buf)
+                        {
+                            buf[index * 3 + 0] = color.R;
+                            buf[index * 3 + 1] = color.G;
+                            buf[index * 3 + 2] = color.B;
+                        }
+                    }
+                }
+            });
 
             sw.Stop();
             Console.WriteLine($"　{sw.ElapsedMilliseconds}ミリ秒");
@@ -72,6 +97,12 @@ namespace YRay.Render
             result.UnlockBits(data);
 
             return result;
+
+            Color Convert(Vector3 vec)
+            {
+                var col = VMath.Clamp(vec, Vector3.Zero, new Vector3(1, 1, 1));
+                return Color.FromArgb((int)(255 * col.x), (int)(255 * col.y), (int)(255 * col.z));
+            }
         }
     }
 }

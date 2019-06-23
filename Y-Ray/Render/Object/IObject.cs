@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using VecMath;
 using VecMath.Geometry;
 
@@ -10,6 +11,8 @@ namespace YRay.Render.Object
         AABoundingBox AABB { get; }
 
         bool DistanceToRay(Ray ray, float minDistance, out Polygon tri, out float distance, out Material material);
+
+        IObject Copy();
     }
 
     public class Mesh : IObject
@@ -108,6 +111,11 @@ namespace YRay.Render.Object
             AABB = new AABoundingBox(min, max);
         }
 
+        public IObject Copy()
+        {
+            return new Mesh(Polygons.Select(p => p.Copy()).ToArray()) { Material = Material.Copy() };
+        }
+
         public bool DistanceToRay(Ray ray, float minDistance, out Polygon poly, out float distance, out Material material)
         {
             float min = minDistance;
@@ -117,21 +125,25 @@ namespace YRay.Render.Object
             distance = minDistance;
             material = Material;
 
-            for (int i = 0; i < Polygons.Length; i++)
+            lock(Polygons)
             {
-                var poly_temp = Polygons[i];
-                float time = poly_temp.CalculateTimeToIntersectWithRay(ray);
-
-                if (min > time && time > 0 && poly_temp.IsIntersectWithRay(ray))
+                for (int i = 0; i < Polygons.Length; i++)
                 {
-                    min = time;
-                    idx = i;
+                    var poly_temp = Polygons[i];
+                    float time = poly_temp.CalculateTimeToIntersectWithRay(ray);
 
-                    poly = poly_temp;
-                    distance = time;
-                    material = Material;
+                    if (min > time && time > 0 && poly_temp.IsIntersectWithRay(ray))
+                    {
+                        min = time;
+                        idx = i;
+
+                        poly = poly_temp;
+                        distance = time;
+                        material = Material;
+                    }
                 }
             }
+            
             return idx != -1;
         }
     }

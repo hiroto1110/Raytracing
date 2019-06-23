@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using VecMath;
 using VecMath.Geometry;
@@ -17,11 +18,6 @@ namespace YRay.Render
 
         public Random Rand { get; } = new Random();
 
-        public Vector3 Raytrace(float u, float v)
-        {
-            return Raytrace(Camera.CreateRay(u, v), 0);
-        }
-
         public Vector3 RandomCosineDirection()
         {
             double r1 = Rand.NextDouble();
@@ -31,6 +27,26 @@ namespace YRay.Render
             float x = (float)(Math.Cos(phi) * Math.Sqrt(r2));
             float y = (float)(Math.Sin(phi) * Math.Sqrt(r2));
             return VMath.Normalize(new Vector3(x, y, z));
+        }
+
+        public Vector3[,] RayTrace(float[] ua, float[] va)
+        {
+            Vector3[,] result = new Vector3[ua.Length, va.Length];
+
+            for (int iu = 0; iu < ua.Length; iu++)
+            {
+                for (int iv = 0; iv < va.Length; iv++)
+                {
+                    result[iu, iv] = Raytrace(Camera.CreateRay(ua[iu], va[iv]), 0);
+                }
+            }
+            return result;
+        
+        }
+
+        public Vector3 Raytrace(float u, float v)
+        {
+                return Raytrace(Camera.CreateRay(u, v), 0);
         }
 
         public Vector3 Raytrace(Ray ray, int depth)
@@ -44,11 +60,13 @@ namespace YRay.Render
                     return color;
                 }
 
-                int sample = 10;
+                int sample = 500;
                 var matrix = Matrix3.LookAt(poly.normal, RandomCosineDirection());
 
                 for (int i = 0; i < sample; i++)
                 {
+                    if (depth == 0 && color > new Vector3(1, 1, 1)) break;
+
                     var randomvec = RandomCosineDirection() * matrix;
                     color += Raytrace(new Ray(pos, randomvec), depth + 1) * Math.Abs(VMath.Dot(randomvec, poly.normal)) / sample;
                 }
@@ -80,7 +98,7 @@ namespace YRay.Render
 
                     if (max > start)
                     {
-                        candicates.Add((obj, start));
+                        candicates.Add((obj, end));
                     }
                 }
             }*/
