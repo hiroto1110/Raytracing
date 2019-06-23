@@ -61,7 +61,7 @@
     </ApplicationDefinition>
     <Compile Include="Render\Object\Camera.cs" />
     <Compile Include="Render\Object\IObject.cs" />
-    <Compile Include="Render\Object\Light.cs" />
+    <Compile Include="Render\Object\Material.cs" />
     <Compile Include="Render\Scene.cs" />
     <Compile Include="Render\Renderer.cs" />
     <Page Include="MainWindow.xaml">

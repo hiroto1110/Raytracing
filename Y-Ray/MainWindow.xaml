@@ -5,8 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:YRay"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="MainWindow" Height="450" Width="660
+        ">
     <Grid>
-        
+        <Button Content="Render" Click="ButtonClicked" HorizontalAlignment="Left" Margin="10,10,0,0" VerticalAlignment="Top" Width="84" RenderTransformOrigin="-3.674,-7.357" Height="26"/>
+        <Image Name="image" Height="360" Margin="10,49,10,0" VerticalAlignment="Top"/>
+
     </Grid>
 </Window>
