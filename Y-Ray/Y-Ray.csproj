@@ -59,9 +59,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="Render\Material\Texture.cs" />
     <Compile Include="Render\Object\Camera.cs" />
     <Compile Include="Render\Object\IObject.cs" />
-    <Compile Include="Render\Object\Material.cs" />
+    <Compile Include="Render\Material\IMaterial.cs" />
     <Compile Include="Render\Scene.cs" />
     <Compile Include="Render\Renderer.cs" />
     <Page Include="MainWindow.xaml">

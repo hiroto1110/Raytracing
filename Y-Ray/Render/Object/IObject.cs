@@ -1,8 +1,10 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using VecMath;
 using VecMath.Geometry;
+using YRay.Render.Material;
 
 namespace YRay.Render.Object
 {
@@ -10,9 +12,55 @@ namespace YRay.Render.Object
     {
         AABoundingBox AABB { get; }
 
-        bool DistanceToRay(Ray ray, float minDistance, out Polygon tri, out float distance, out Material material);
+        bool DistanceToRay(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out float distance, out IMaterial material);
 
         IObject Copy();
+    }
+
+    public class Sphere : IObject
+    {
+        public AABoundingBox AABB { get; }
+
+        public IMaterial Material { get; set; }
+
+        public Vector3 Pos { get; set; }
+
+        public float Range { get; set; }
+
+       // public Sphere() { }
+
+        public IObject Copy() => new Sphere()
+        {
+            Range = Range,
+            Material = Material
+        };
+
+        public bool DistanceToRay(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out float distance, out IMaterial material)
+        {
+            material = Material;
+            distance = minDistance;
+            normal = Vector3.Zero;
+            uv = Vector2.Zero;
+
+            float a = VMath.Dot(ray.vec, Pos - ray.pos);
+            float e = (Pos - ray.pos).LengthSquare();
+
+            float f = Range * Range - e + a * a;
+
+            if (f < 0) return false;
+
+            distance = a - (float)Math.Sqrt(f);
+
+            if (minDistance > distance && distance > 0.05)
+            {
+                normal = VMath.Normalize((ray.pos + ray.vec * distance) - Pos);
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
     }
 
     public class Mesh : IObject
@@ -20,7 +68,7 @@ namespace YRay.Render.Object
         public AABoundingBox AABB { get; }
         public Polygon[] Polygons { get; }
         public Matrix4 Matrix { get; set; } = Matrix4.Identity;
-        public Material Material { get; set; }
+        public IMaterial Material { get; set; }
 
         public static Polygon[] CreateMeshFromWavefront(string path)
         {
@@ -110,41 +158,50 @@ namespace YRay.Render.Object
 
             AABB = new AABoundingBox(min, max);
         }
-
         public IObject Copy()
         {
             return new Mesh(Polygons.Select(p => p.Copy()).ToArray()) { Material = Material.Copy() };
         }
 
-        public bool DistanceToRay(Ray ray, float minDistance, out Polygon poly, out float distance, out Material material)
+        public bool DistanceToRay(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out float distance, out IMaterial material)
         {
             float min = minDistance;
             int idx = -1;
 
-            poly = new Polygon();
+            normal = Vector3.Zero;
+            uv = Vector2.Zero;
             distance = minDistance;
             material = Material;
 
-            lock(Polygons)
+            Vector3 barycentricPos = Vector3.Zero;
+
+            for (int i = 0; i < Polygons.Length; i++)
             {
-                for (int i = 0; i < Polygons.Length; i++)
+                var poly_temp = Polygons[i];
+                float time = poly_temp.CalculateTimeToIntersectWithRay(ray);
+
+                if (min > time && time > 0.05 && poly_temp.BarycentricPos(ray, out Vector3 baryPos))
                 {
-                    var poly_temp = Polygons[i];
-                    float time = poly_temp.CalculateTimeToIntersectWithRay(ray);
+                    min = time;
+                    idx = i;
 
-                    if (min > time && time > 0 && poly_temp.IsIntersectWithRay(ray))
-                    {
-                        min = time;
-                        idx = i;
-
-                        poly = poly_temp;
-                        distance = time;
-                        material = Material;
-                    }
+                    normal = poly_temp.normal;
+                    distance = time;
+                    material = Material;
+                    barycentricPos = baryPos;
                 }
             }
-            
-            return idx != -1;
+
+            if(idx != -1)
+            {
+                uv = Polygons[idx].CalcUV(barycentricPos);
+
+                return true;
+            }
+            else
+            {
+                return false;
+            }
         }
     }
 }

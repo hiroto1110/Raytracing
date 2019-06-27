@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.Linq;
 using VecMath;
-using VecMath.Geometry;
 using YRay.Render.Object;
+using YRay.Render.Material;
 
 namespace YRay.Render
 {
@@ -14,68 +13,52 @@ namespace YRay.Render
 
         public List<IObject> Objects { get; } = new List<IObject>();
 
-        public int MaxDepth { get; set; } = 0;
-
-        public Random Rand { get; } = new Random();
-
-        public Vector3 RandomCosineDirection()
-        {
-            double r1 = Rand.NextDouble();
-            double r2 = Rand.NextDouble();
-            float z = (float)Math.Sqrt(1 - r2);
-            double phi = Math.PI * 2 * r1;
-            float x = (float)(Math.Cos(phi) * Math.Sqrt(r2));
-            float y = (float)(Math.Sin(phi) * Math.Sqrt(r2));
-            return VMath.Normalize(new Vector3(x, y, z));
-        }
-
-        public Vector3[,] RayTrace(float[] ua, float[] va)
-        {
-            Vector3[,] result = new Vector3[ua.Length, va.Length];
-
-            for (int iu = 0; iu < ua.Length; iu++)
-            {
-                for (int iv = 0; iv < va.Length; iv++)
-                {
-                    result[iu, iv] = Raytrace(Camera.CreateRay(ua[iu], va[iv]), 0);
-                }
-            }
-            return result;
-        
-        }
+        public int MaxDepth { get; set; } = 10;
 
         public Vector3 Raytrace(float u, float v)
         {
-                return Raytrace(Camera.CreateRay(u, v), 0);
+            return Raytrace(Camera.CreateRay(u, v), 0);
         }
 
         public Vector3 Raytrace(Ray ray, int depth)
         {
-            if (CollidingPolygon(ray, 1E+10F, out Polygon poly, out Vector3 pos, out Material mat))
+            if (CollidingPolygon(ray, 1E+10F, out Vector3 normal, out Vector2 uv, out Vector3 pos, out IMaterial mat))
             {
-                Vector3 color = mat.Emission;
-
                 if (depth > MaxDepth)
                 {
-                    return color;
+                    return new Vector3(1, 1, 1) * 0.1;
                 }
 
-                int sample = 500;
-                var matrix = Matrix3.LookAt(poly.normal, RandomCosineDirection());
+                if (mat.Emission != Vector3.Zero)
+                {
+                    return mat.Emission / (depth == 0 ? 1 : Math.Max(2F, (pos - ray.pos).LengthSquare() * 2));
+                }
+
+                Vector3 color = Vector3.Zero;
+
+                int sample;
+                switch (depth)
+                {
+                    case 0: sample = 20; break;
+                    case 1: sample = 5; break;
+                    default: sample = 1; break;
+                }
 
                 for (int i = 0; i < sample; i++)
                 {
-                    if (depth == 0 && color > new Vector3(1, 1, 1)) break;
+                    if (depth == 0 && color >= new Vector3(1, 1, 1)) break;
 
-                    var randomvec = RandomCosineDirection() * matrix;
-                    color += Raytrace(new Ray(pos, randomvec), depth + 1) * Math.Abs(VMath.Dot(randomvec, poly.normal)) / sample;
+                    mat.Scatter(ray, normal, uv, pos, out Vector3 nextVec, out Vector3 alobedo);
+
+                    color += Vector3.Scale(alobedo, Raytrace(new Ray(pos, nextVec), depth + 1)) / sample;
                 }
+
                 return color;
             }
             return Vector3.Zero;
         }
 
-        bool CollidingPolygon(Ray ray, float minDistance, out Polygon poly, out Vector3 pos, out Material material)
+        bool CollidingPolygon(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out Vector3 pos, out IMaterial material)
         {
             float min = minDistance;
             float max = 0;
@@ -105,7 +88,8 @@ namespace YRay.Render
 
             candicates = Objects.Select(o => (o, 1e+6f)).ToList();
 
-            poly = new Polygon();
+            normal = Vector3.Zero;
+            uv = Vector2.Zero;
             pos = Vector3.Zero;
             material = null;
 
@@ -115,12 +99,16 @@ namespace YRay.Render
 
             foreach ((IObject obj, float start) in candicates)
             {
-                if (obj.DistanceToRay(ray, min, out var poly_temp, out float dis, out Material mat))
+                lock (obj)
                 {
-                    min = dis;
-                    poly = poly_temp;
-                    material = mat;
-                    result = true;
+                    if (obj.DistanceToRay(ray, min, out Vector3 normal_temp, out Vector2 uv_temp, out float dis, out IMaterial mat))
+                    {
+                        min = dis;
+                        normal = normal_temp;
+                        uv = uv_temp;
+                        material = mat;
+                        result = true;
+                    }
                 }
             }
             pos = ray.pos + ray.vec * min;

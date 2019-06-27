@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using VecMath;
+using YRay.Render.Material;
 
 namespace YRay.Render
 {
@@ -17,92 +18,127 @@ namespace YRay.Render
 
         public Scene Scene { get; } = new Scene();
 
-        public Size RenderSize { get; set; } = new Size(1280, 720);
+        public Vector2i RenderSize { get; set; } = new Vector2i(320, 180);
+
+        private Random Rand { get; } = new Random();
 
         public Renderer()
         {
             Scene.Camera.Fov = (float)Math.PI / 3;
-            Scene.Camera.Aspect = (float)RenderSize.Height / RenderSize.Width;
+            Scene.Camera.Aspect = (float)RenderSize.y / RenderSize.x;
         }
 
-        public Vector3[,] RenderPixelBlock(Point start, Size blockSize)
-        {
-            float[] ua = Enumerable.Range(0, blockSize.Width).Select(x => ((start.X + x) / (float)RenderSize.Width) * 2 - 1).ToArray();
-            float[] va = Enumerable.Range(0, blockSize.Height).Select(y => ((start.Y + y) / (float)RenderSize.Height) * -2 + 1).ToArray();
+        public RenderResult CreateRenderResult() => new RenderResult(RenderSize);
 
-            return Scene.RayTrace(ua, va);
+        private Vector3 RenderPixel(int x, int y, bool random)
+        {
+            float sampleX = x + (random ? ((float)Rand.NextDouble() - 0.5F)  : 0);
+            float sampleY = y + (random ? ((float)Rand.NextDouble() - 0.5F) : 0);
+            float u = (sampleX / RenderSize.x) * 2 - 1;
+            float v = (sampleY / RenderSize.y) * 2 - 1;
+
+            return Scene.Raytrace(u, -v);
         }
 
-        public Bitmap Render()
+        public void Render(RenderResult result, int sample, bool merge, Func<Vector2i, bool> predicte, Action<float> action)
         {
-            var result = new Bitmap(RenderSize.Width, RenderSize.Height);
-
             var sw = new System.Diagnostics.Stopwatch();
             sw.Start();
 
-            byte[] buf = new byte[RenderSize.Width * RenderSize.Height * 3];
+            var blockSize = new Vector2i(32, 1);
+            var blockNum = new Vector2i((int)Math.Ceiling((float)RenderSize.x / blockSize.x), (int)Math.Ceiling((float)RenderSize.y / blockSize.y));
 
-            var blockSize = new Size(16, 9);
-            var blockNum = new Size((int)Math.Ceiling((float)RenderSize.Width / blockSize.Width), (int)Math.Ceiling((float)RenderSize.Height / blockSize.Height));
-
-            object lockobj = new object();
             int count = 0;
 
-            Parallel.For(0, blockNum.Width * blockNum.Height, i =>
+            for (int blockX = 0; blockX < blockNum.x; blockX++)
             {
-                int block_x = i % blockNum.Width;
-                int block_y = i / blockNum.Width;
-
-                //Console.WriteLine(block_x + ", " + block_y);
-
-                int blockWidth = block_x == (blockNum.Width - 1) ? RenderSize.Width % blockSize.Width : blockSize.Width;
-                int blockHeight = block_y == (blockNum.Height - 1) ? RenderSize.Height % blockSize.Height : blockSize.Height;
-
-                if (blockWidth == 0) blockWidth = blockSize.Width;
-                if (blockHeight == 0) blockHeight = blockSize.Height;
-
-                Vector3[,] colors = RenderPixelBlock(new Point(block_x * blockSize.Width, block_y * blockSize.Height), new Size(blockWidth, blockHeight));
-
-                lock(lockobj)
+                for (int blockY = 0; blockY < blockNum.y; blockY++)
                 {
-                    count += blockWidth * blockHeight;
-                    Console.WriteLine(count / (float)(blockNum.Width * blockNum.Height));
-                }
+                    var blockPos = new Vector2i(blockX, blockY);
+                    var currentBlockSize = new Vector2i(dim => blockPos[dim] == (blockNum[dim] - 1) ? (RenderSize[dim] % blockSize[dim] != 0 ? RenderSize[dim] % blockSize[dim] : blockSize[dim]) : blockSize[dim]);
 
-                for (int x = 0; x < blockWidth; x++)
-                {
-                    for (int y = 0; y < blockHeight; y++)
+                    Parallel.For(0, currentBlockSize.x * currentBlockSize.y, PARALLEL_OPTION, i =>
                     {
-                        int wolrd_x = block_x * blockSize.Width + x;
-                        int wolrd_y = block_y * blockSize.Height + y;
-                        int index = wolrd_x + wolrd_y * RenderSize.Width;
+                        int x = i % currentBlockSize.x;
+                        int y = i / currentBlockSize.x;
+                        int wolrd_x = blockPos.x * blockSize.x + x;
+                        int wolrd_y = blockPos.y * blockSize.y + y;
 
-                        var color = Convert(colors[x, y]);
-
-                        //  lock (buf)
+                        if (predicte(new Vector2i(wolrd_x, wolrd_y)))
                         {
-                            buf[index * 3 + 0] = color.R;
-                            buf[index * 3 + 1] = color.G;
-                            buf[index * 3 + 2] = color.B;
+                            Vector3 pixel = Vector3.Zero;
+
+                            for (int s = 0; s < sample; s++)
+                            {
+                                pixel += RenderPixel(wolrd_x, wolrd_y, merge);
+                            }
+                            result[wolrd_x, wolrd_y] = (result[wolrd_x, wolrd_y] + pixel) / (sample + (merge ? 1 : 0));
                         }
-                    }
+                    });
+
+                    count += currentBlockSize.x * currentBlockSize.y;
+
+                    action(count / (float)(RenderSize.x * RenderSize.y));
                 }
-            });
+            }
 
             sw.Stop();
-            Console.WriteLine($"　{sw.ElapsedMilliseconds}ミリ秒");
+            Console.WriteLine($"{sw.ElapsedMilliseconds}ms");
+        }
+    }
 
-            BitmapData data = result.LockBits(new Rectangle(0, 0, result.Width, result.Height), ImageLockMode.ReadWrite, PixelFormat.Format24bppRgb);
-            Marshal.Copy(buf, 0, data.Scan0, buf.Length);
-            result.UnlockBits(data);
+    public class RenderResult : Texture
+    {
+        public bool IsUpdated { get; set; }
+
+        public RenderResult(Vector2i size) : base(size)
+        {
+        }
+
+        public List<Vector2i> CreateNoizePosArray(float e)
+        {
+            var result = new List<Vector2i>();
+
+            for (int x = 0; x < Size.x; x++)
+            {
+                for (int y = 0; y < Size.y; y++)
+                {
+                    Vector3 noize = Vector3.Zero;
+
+                    int count = 0;
+
+                    if (x != 0)
+                    {
+                        noize += this[x - 1, y];
+                        count++;
+                    }
+                    if (x != Size.x - 1)
+                    {
+                        noize += this[x + 1, y];
+                        count++;
+                    }
+
+                    if (y != 0)
+                    {
+                        noize += this[x, y - 1];
+                        count++;
+                    }
+                    if (y != Size.y - 1)
+                    {
+                        noize += this[x, y + 1];
+                        count++;
+                    }
+
+                    noize = noize / count - this[x, y];
+
+                    if (noize.LengthSquare() > e * e)
+                    {
+                        result.Add(new Vector2i(x, y));
+                    }
+                }
+            }
 
             return result;
-
-            Color Convert(Vector3 vec)
-            {
-                var col = VMath.Clamp(vec, Vector3.Zero, new Vector3(1, 1, 1));
-                return Color.FromArgb((int)(255 * col.x), (int)(255 * col.y), (int)(255 * col.z));
-            }
         }
     }
 }
