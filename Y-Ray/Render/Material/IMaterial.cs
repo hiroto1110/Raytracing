@@ -9,6 +9,8 @@ namespace YRay.Render.Material
 
         void Scatter(Ray ray, Vector3 normal, Vector2 uv, Vector3 pos, out Vector3 vec, out Vector3 albedo);
 
+        bool ShouldReflectPhoton();
+
         IMaterial Copy();
     }
 
@@ -33,6 +35,11 @@ namespace YRay.Render.Material
             albedo = Albedo.GetColor(uv) * Math.Abs(dot);
 
             vec = CreateReflectedVector(ray, normal, pos);
+        }
+
+        public bool ShouldReflectPhoton()
+        {
+            return true;
         }
 
         protected Vector3 CreateReflectedVector(Ray ray, Vector3 normal, Vector3 pos)

@@ -2,18 +2,48 @@
 using System.Collections.Generic;
 using System.Linq;
 using VecMath;
-using YRay.Render.Object;
 using YRay.Render.Material;
+using YRay.Render.Object;
 
 namespace YRay.Render
 {
+    public class HitResult
+    {
+        public Vector3 normal;
+        public Vector2 uv;
+        public float distance;
+        public IMaterial material;
+    }
+
+    public class Sun
+    {
+        public Vector3 Pos { get; set; } = VMath.Normalize(new Vector3(1, 1, -1));
+
+        public Vector3 Color { get; set; } = new Vector3(1, 1, 1) * 2;
+
+        public Vector3 GetColor(Ray ray)
+        {
+            return VMath.Dot(Pos, ray.vec) > 0.995 ? Color : new Vector3(1, 1, 1) * 0.1F;
+        }
+    }
+
     public class Scene
     {
         public Camera Camera { get; } = new Camera();
 
+        public Sun Sun { get; } = new Sun();
+
         public List<IObject> Objects { get; } = new List<IObject>();
 
-        public int MaxDepth { get; set; } = 10;
+        public int MaxDepth { get; set; } = 6;
+
+        public void InitPreRendering()
+        {
+            foreach (var obj in Objects)
+            {
+                obj.InitPreRendering();
+            }
+        }
 
         public Vector3 Raytrace(float u, float v)
         {
@@ -22,98 +52,75 @@ namespace YRay.Render
 
         public Vector3 Raytrace(Ray ray, int depth)
         {
-            if (CollidingPolygon(ray, 1E+10F, out Vector3 normal, out Vector2 uv, out Vector3 pos, out IMaterial mat))
+            var result = new HitResult() { distance = 1E+10F };
+
+            if (CollidingPolygon(ray, result))
             {
                 if (depth > MaxDepth)
                 {
                     return new Vector3(1, 1, 1) * 0.1;
                 }
 
-                if (mat.Emission != Vector3.Zero)
+                var pos = ray.pos + ray.vec * result.distance;
+
+                Vector3 color = result.material.Emission  /   ((pos - ray.pos).LengthSquare() * 4);
+
+                if (result.material.Emission == Vector3.Zero)
                 {
-                    return mat.Emission / (depth == 0 ? 1 : Math.Max(2F, (pos - ray.pos).LengthSquare() * 2));
+                    int sample;
+                    switch (depth)
+                    {
+                        case 0: sample = 1; break;
+                        case 1: sample = 1; break;
+                        default: sample = 1; break;
+                    }
+
+                    for (int i = 0; i < sample; i++)
+                    {
+                        if (depth == 0 && color >= new Vector3(1, 1, 1)) break;
+
+                        result.material.Scatter(ray, result.normal, result.uv, pos, out Vector3 nextVec, out Vector3 alobedo);
+
+                        color += Vector3.Scale(alobedo, Raytrace(new Ray(pos, nextVec), depth + 1)) / sample;
+                    }
                 }
-
-                Vector3 color = Vector3.Zero;
-
-                int sample;
-                switch (depth)
-                {
-                    case 0: sample = 20; break;
-                    case 1: sample = 5; break;
-                    default: sample = 1; break;
-                }
-
-                for (int i = 0; i < sample; i++)
-                {
-                    if (depth == 0 && color >= new Vector3(1, 1, 1)) break;
-
-                    mat.Scatter(ray, normal, uv, pos, out Vector3 nextVec, out Vector3 alobedo);
-
-                    color += Vector3.Scale(alobedo, Raytrace(new Ray(pos, nextVec), depth + 1)) / sample;
-                }
-
                 return color;
             }
             return Vector3.Zero;
         }
 
-        bool CollidingPolygon(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out Vector3 pos, out IMaterial material)
+        bool CollidingPolygon(Ray ray, HitResult result)
         {
-            float min = minDistance;
-            float max = 0;
+            var candicates = new List<(IObject obj, float start)>();
 
-            var candicates = new List<(IObject obj, float min)>();
-
-            /*foreach (var obj in Objects)
+            foreach (var obj in Objects)
             {
-                if (obj.AABB.CalculateTimeToIntersect(ray.pos, ray.vec, out float start, out float end))
-                {
-                    if (end <= 0) continue;
-
-                    if (min > start)
+                  lock (obj)
+                if (obj.AABB.CalculateTimeToIntersectWithRay(Ray.Transform(ray, obj.TransformInv), out float start, out float end))
                     {
-                        min = start;
-                        max = end;
+                        if (end <= 0) continue;
 
-                        candicates.RemoveAll(o => o.min > max);
+                        if (result.distance > start)
+                        {
+                            candicates.Add((obj, start));
+                        }
                     }
-
-                    if (max > start)
-                    {
-                        candicates.Add((obj, end));
-                    }
-                }
-            }*/
-
-            candicates = Objects.Select(o => (o, 1e+6f)).ToList();
-
-            normal = Vector3.Zero;
-            uv = Vector2.Zero;
-            pos = Vector3.Zero;
-            material = null;
+            }
 
             if (candicates.Count == 0) return false;
 
-            bool result = false;
+            bool hit = false;
 
-            foreach ((IObject obj, float start) in candicates)
+            foreach ((IObject obj, float start) in candicates.OrderBy(g => g.start))
             {
                 lock (obj)
-                {
-                    if (obj.DistanceToRay(ray, min, out Vector3 normal_temp, out Vector2 uv_temp, out float dis, out IMaterial mat))
+                    if (start < result.distance && obj.DistanceToRay(ray, result))
                     {
-                        min = dis;
-                        normal = normal_temp;
-                        uv = uv_temp;
-                        material = mat;
-                        result = true;
+                        hit = true;
                     }
-                }
             }
-            pos = ray.pos + ray.vec * min;
 
-            return result;
+            return hit;
         }
     }
 }

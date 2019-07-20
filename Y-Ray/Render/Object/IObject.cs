@@ -12,48 +12,59 @@ namespace YRay.Render.Object
     {
         AABoundingBox AABB { get; }
 
-        bool DistanceToRay(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out float distance, out IMaterial material);
+        Matrix4 Transform { get; }
+        Matrix4 TransformInv { get; }
 
-        IObject Copy();
+        void InitPreRendering();
+
+        bool DistanceToRay(Ray ray, HitResult result);
     }
 
-    public class Sphere : IObject
+    public abstract class ObjectBase : IObject
     {
-        public AABoundingBox AABB { get; }
+        public AABoundingBox AABB { get; set; }
 
+        public Matrix4 Transform { get; set; } = Matrix4.Identity;
+        public Matrix4 TransformInv { get; set; } = Matrix4.Identity;
+
+        public abstract bool DistanceToRay(Ray ray, HitResult result);
+
+        public virtual void InitPreRendering()
+        {
+            TransformInv = Matrix4.InverseTransform(Transform);
+        }
+    }
+
+    public class Sphere : ObjectBase
+    {
         public IMaterial Material { get; set; }
-
-        public Vector3 Pos { get; set; }
 
         public float Range { get; set; }
 
-       // public Sphere() { }
-
-        public IObject Copy() => new Sphere()
+        public Sphere(float range)
         {
-            Range = Range,
-            Material = Material
-        };
+            Range = range;
+            AABB = new AABoundingBox(new Vector3(1, 1, 1) * -Range, new Vector3(1, 1, 1) * Range);
+        }
 
-        public bool DistanceToRay(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out float distance, out IMaterial material)
+        public override bool DistanceToRay(Ray ray, HitResult result)
         {
-            material = Material;
-            distance = minDistance;
-            normal = Vector3.Zero;
-            uv = Vector2.Zero;
+            var pos = Transform.Translation;
 
-            float a = VMath.Dot(ray.vec, Pos - ray.pos);
-            float e = (Pos - ray.pos).LengthSquare();
+            float a = VMath.Dot(ray.vec, pos - ray.pos);
+            float e = (pos - ray.pos).LengthSquare();
 
             float f = Range * Range - e + a * a;
 
             if (f < 0) return false;
 
-            distance = a - (float)Math.Sqrt(f);
+            float distance = a - (float)Math.Sqrt(f);
 
-            if (minDistance > distance && distance > 0.05)
+            if (result.distance > distance && distance > 0.05)
             {
-                normal = VMath.Normalize((ray.pos + ray.vec * distance) - Pos);
+                result.normal = VMath.Normalize((ray.pos + ray.vec * distance) - pos);
+                result.material = Material;
+                result.distance = distance;
                 return true;
             }
             else
@@ -63,12 +74,18 @@ namespace YRay.Render.Object
         }
     }
 
-    public class Mesh : IObject
+    public class HitResultPolygon
     {
-        public AABoundingBox AABB { get; }
-        public Polygon[] Polygons { get; }
-        public Matrix4 Matrix { get; set; } = Matrix4.Identity;
+        public Polygon poly;
+        public Vector3 barycentricPos;
+        public float distance;
+    }
+
+    public class Mesh : ObjectBase
+    {
         public IMaterial Material { get; set; }
+
+        private OctagonalNode OctagonalNode { get; }
 
         public static Polygon[] CreateMeshFromWavefront(string path)
         {
@@ -142,10 +159,92 @@ namespace YRay.Render.Object
 
         public Mesh(Polygon[] polygons)
         {
-            Polygons = polygons;
+            Vector3 min = polygons[0].V1.pos;
+            Vector3 max = polygons[0].V1.pos;
 
-            Vector3 min = Polygons[0].V1.pos;
-            Vector3 max = Polygons[0].V1.pos;
+            foreach (var poly in polygons)
+            {
+                foreach (var v in poly.vertices)
+                {
+                    min = VMath.Min(min, v.pos);
+                    max = VMath.Max(max, v.pos);
+                }
+            }
+            AABB = new AABoundingBox(min, max);
+
+            OctagonalNode = new OctagonalNode(AABB);
+            OctagonalNode.Polygons.AddRange(polygons);
+            OctagonalNode.InitPolygons(0, 9, 10000);
+        }
+
+        public override bool DistanceToRay(Ray ray, HitResult result)
+        {
+            var resultPoly = new HitResultPolygon
+            {
+                distance = result.distance
+            };
+
+            if (OctagonalNode.DistanceToRay(Ray.Transform(ray, TransformInv), resultPoly))
+            {
+                result.distance = resultPoly.distance;
+                result.normal = resultPoly.poly.normal * TransformInv;
+                result.uv = resultPoly.poly.CalcUV(resultPoly.barycentricPos);
+                result.material = Material;
+
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+    }
+
+    public class OctagonalNode
+    {
+        public AABoundingBox AABB { get; private set; }
+
+        public List<Polygon> Polygons { get; private set; } = new List<Polygon>();
+
+        public OctagonalNode[] Childs { get; private set; } = { };
+
+        public OctagonalNode(AABoundingBox aabb)
+        {
+            AABB = aabb;
+        }
+
+        public void InitPolygons(int depth, int maxDepth, int maxNumPolygons)
+        {
+            if (depth > maxDepth || Polygons.Count < maxNumPolygons)
+            {
+                UpdateAABB();
+                return;
+            }
+
+            var childs = DivideAABB(AABB).Select(a => new OctagonalNode(a)).ToList();
+
+            var newList = new List<Polygon>(Polygons);
+            Polygons = new List<Polygon>();
+
+            foreach (var poly in newList)
+            {
+                (childs.FirstOrDefault(c => IsHoldPolygon(c.AABB, poly)) ?? this).Polygons.Add(poly);
+            }
+
+            Childs = childs.Where(c => c.Polygons.Count > 0).ToArray();
+
+            foreach (var child in Childs)
+            {
+                child.InitPolygons(depth + 1, maxDepth, maxNumPolygons);
+            }
+
+            UpdateAABB();
+        }
+
+        private void UpdateAABB()
+        {
+            Vector3 min = new Vector3(1, 1, 1) * 1E+6F;
+            Vector3 max = new Vector3(1, 1, 1) * -1E+6F;
 
             foreach (var poly in Polygons)
             {
@@ -156,51 +255,97 @@ namespace YRay.Render.Object
                 }
             }
 
+            foreach (var child in Childs)
+            {
+                min = VMath.Min(min, child.AABB.PosMin);
+                max = VMath.Max(max, child.AABB.PosMax);
+            }
+
             AABB = new AABoundingBox(min, max);
         }
-        public IObject Copy()
+
+        public bool DistanceToRay(Ray ray, HitResultPolygon result)
         {
-            return new Mesh(Polygons.Select(p => p.Copy()).ToArray()) { Material = Material.Copy() };
-        }
+            bool hit = false;
 
-        public bool DistanceToRay(Ray ray, float minDistance, out Vector3 normal, out Vector2 uv, out float distance, out IMaterial material)
-        {
-            float min = minDistance;
-            int idx = -1;
-
-            normal = Vector3.Zero;
-            uv = Vector2.Zero;
-            distance = minDistance;
-            material = Material;
-
-            Vector3 barycentricPos = Vector3.Zero;
-
-            for (int i = 0; i < Polygons.Length; i++)
+            if (DistanceToRayLocal(ray, result))
             {
-                var poly_temp = Polygons[i];
-                float time = poly_temp.CalculateTimeToIntersectWithRay(ray);
+                hit = true;
+            }
 
-                if (min > time && time > 0.05 && poly_temp.BarycentricPos(ray, out Vector3 baryPos))
+            if (Childs.Length == 0) return hit;
+
+            var candicates = new List<(OctagonalNode obj, float start)>();
+
+            foreach (var node in Childs)
+            {
+                if (node.AABB.CalculateTimeToIntersectWithRay(ray, out float start, out float end) && start < result.distance)
                 {
-                    min = time;
-                    idx = i;
+                    if (end <= 0) continue;
 
-                    normal = poly_temp.normal;
-                    distance = time;
-                    material = Material;
-                    barycentricPos = baryPos;
+                    if (result.distance > start)
+                    {
+                        candicates.Add((node, start));
+                    }
                 }
             }
 
-            if(idx != -1)
+            foreach ((var node, float f) in candicates.OrderBy(o => o.start))
             {
-                uv = Polygons[idx].CalcUV(barycentricPos);
-
-                return true;
+                if (node.DistanceToRay(ray, result))
+                {
+                    hit = true;
+                    break;
+                }
             }
-            else
+            return hit;
+        }
+
+        private bool DistanceToRayLocal(Ray ray, HitResultPolygon result)
+        {
+            bool hit = false;
+
+            for (int i = 0; i < Polygons.Count; i++)
             {
-                return false;
+                var poly_temp = Polygons[i];
+                float distance = poly_temp.CalculateTimeToIntersectWithRay(ray);
+
+                if (result.distance > distance && distance > 0.05 && poly_temp.BarycentricPos(ray, out Vector3 baryPos))
+                {
+                    hit = true;
+
+                    result.poly = poly_temp;
+                    result.distance = distance;
+                    result.barycentricPos = baryPos;
+                }
+            }
+
+            return hit;
+        }
+
+        private static bool IsHoldPolygon(AABoundingBox aabb, Polygon poly)
+        {
+            return aabb.IsHoldPos(poly.V1.pos) && aabb.IsHoldPos(poly.V2.pos) && aabb.IsHoldPos(poly.V3.pos);
+        }
+
+        private static IEnumerable<AABoundingBox> DivideAABB(AABoundingBox parent)
+        {
+            var center = (parent.PosMin + parent.PosMax) * 0.5F;
+
+            for (int i = 0; i < 8; i++)
+            {
+                int[] dimFlag = { i / 4, i % 4 / 2, i % 4 % 2 };
+
+                Vector3 min = Vector3.Zero;
+                Vector3 max = Vector3.Zero;
+
+                for (int dim = 0; dim < 3; dim++)
+                {
+                    min[dim] = dimFlag[dim] == 1 ? center[dim] : parent.PosMin[dim];
+                    max[dim] = dimFlag[dim] == 1 ? parent.PosMax[dim] : center[dim];
+                }
+
+                yield return new AABoundingBox(min, max);
             }
         }
     }

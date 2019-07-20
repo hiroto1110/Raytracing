@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media.Imaging;
@@ -26,14 +27,23 @@ namespace YRay
         {
             InitializeComponent();
 
-            Renderer.Scene.Camera.Position = new Vector3(0, 1.5F, -1.4F);
+            Renderer.Scene.Camera.Position = new Vector3(0, 1.5F, -2F);
             Renderer.Scene.Camera.Rotation = Matrix3.LookAt(Vector3.UnitZ, Vector3.UnitY);
+
+            //Renderer.Scene.Objects.Add(new Mesh(Mesh.CreateMeshFromWavefront("D:\\Work\\Project\\Summer\\Object\\Plant\\YoshinoCherry\\pop\\cherry_10_1.obj"))
+            //{
+            //    Material = new MaterialLambert()
+            //    {
+            //        Albedo = new TextureFill(new Vector3(0.8F, 0.8F, 0.8F)),
+            //        Roughness = 1,
+            //    }
+            //});
 
             Renderer.Scene.Objects.Add(new Mesh(Mesh.CreateMeshFromWavefront("C:\\Projects\\Y-Ray\\Y-Ray\\bin\\Debug\\test1.obj"))
             {
                 Material = new MaterialLambert()
                 {
-                    Albedo = Texture.CreateFromFile("D:\\Work\\Material\\Rock\\Concrete_Damaged_Base_pkngj0_4K_surface_ms\\pkngj_4K_Albedo.jpg"),
+                    Albedo = new TextureFill(new Vector3(0.8F, 0.8F, 0.8F)),
                     Roughness = 1,
                 }
             });
@@ -42,7 +52,7 @@ namespace YRay
             {
                 Material = new MaterialLambert()
                 {
-                    Albedo = Texture.CreateFromFile("D:\\Work\\Material\\Moss\\Ground_Forest_smkmagnb_4K_surface_ms\\smkmagnb_4K_Albedo.jpg"),
+                    Albedo = new TextureFill(new Vector3(0.2F, 0.8F, 0.2F)),
                     Roughness = 1,
                 }
             });
@@ -56,10 +66,9 @@ namespace YRay
                 }
             });
 
-            Renderer.Scene.Objects.Add(new Sphere()
+            Renderer.Scene.Objects.Add(new Sphere(0.6F)
             {
-                Range = 0.6F,
-                Pos = new Vector3(0F, 2F, 1.4F),
+                Transform = new Matrix4(Matrix3.Identity, new Vector3(0F, 2F, 1.4F)),
                 Material = new MaterialLambert()
                 {
                     Albedo = new TextureFill(new Vector3(0.8F, 0.8F, 0.3F)),
@@ -67,10 +76,9 @@ namespace YRay
                 },
             });
 
-            Renderer.Scene.Objects.Add(new Sphere()
+            Renderer.Scene.Objects.Add(new Sphere(0.3F)
             {
-                Range = 0.5F,
-                Pos = new Vector3(1F, 2F, 0F),
+                Transform = new Matrix4(Matrix3.Identity, new Vector3(1F, 1.6F, 0F)),
                 Material = new MaterialLambert()
                 {
                     Albedo = new TextureFill(new Vector3(0.8F, 0.8F, 0.8F)),
@@ -78,10 +86,9 @@ namespace YRay
                 },
             });
 
-            Renderer.Scene.Objects.Add(new Sphere()
+            Renderer.Scene.Objects.Add(new Sphere(0.4F)
             {
-                Range = 0.4F,
-                Pos = new Vector3(-1F, 0.4F, 0F),
+                Transform = new Matrix4(Matrix3.Identity, new Vector3(-1F, 0.4F, 0F)),
                 Material = new MaterialLambert()
                 {
                     Albedo = new TextureFill(new Vector3(0.3F, 0.8F, 0.8F)),
@@ -102,7 +109,8 @@ namespace YRay
             {
                 Material = new MaterialLambert()
                 {
-                    Emission = new Vector3(1, 1, 1) * 10,
+                    Emission = new Vector3(1, 1, 1) * 20, //
+                    Albedo = new TextureFill(new Vector3(1F, 1F, 1F)),
                     Roughness = 1,
                 }
             });
@@ -147,7 +155,7 @@ namespace YRay
         private async void ButtonClicked(object sender, RoutedEventArgs e)
         {
             await Task.Factory.StartNew(Render);
-            await Task.Factory.StartNew(() => RenderPass(10, 0.05F));
+            await Task.Factory.StartNew(() => RenderPass(10, 0.02F));
 
             e.Handled = true;
         }
@@ -156,7 +164,7 @@ namespace YRay
         {
             RenderResult = Renderer.CreateRenderResult();
 
-            Renderer.Render(RenderResult, 1, false, p => true, progress =>
+            Renderer.Render(RenderResult, 1, 0, p => true, progress =>
             {
                 lock (RenderResult) RenderResult.IsUpdated = true;
                 Console.WriteLine(progress);
@@ -166,16 +174,16 @@ namespace YRay
         private void RenderPass(int pass, float epsilon)
         {
             int count = 0;
-            List<Vector2i> postions;
 
-            while (count++ < pass && (postions = RenderResult.CreateNoizePosArray(epsilon)).Count > 0)
+            while (count++ < pass && RenderResult.CreateNoizePosArray(epsilon, out bool[,] postions))
             {
                 Console.WriteLine("pass " + count);
 
-                Renderer.Render(RenderResult, 3, true, p => postions.Contains(p), progress =>
-                {
-                    lock (RenderResult) RenderResult.IsUpdated = true;
-                });
+                Renderer.Render(RenderResult, 3, count * 3 - 2, p => postions[p.x , p.y], progress =>
+                 {
+                     lock (RenderResult) RenderResult.IsUpdated = true;
+                     Console.WriteLine(progress);
+                 });
             }
         }
     }

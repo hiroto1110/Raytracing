@@ -1,8 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using VecMath;
 using YRay.Render.Material;
@@ -18,13 +14,13 @@ namespace YRay.Render
 
         public Scene Scene { get; } = new Scene();
 
-        public Vector2i RenderSize { get; set; } = new Vector2i(320, 180);
+        public Vector2i RenderSize { get; set; } = new Vector2i(640, 360);
 
         private Random Rand { get; } = new Random();
 
         public Renderer()
         {
-            Scene.Camera.Fov = (float)Math.PI / 3;
+            Scene.Camera.Fov = (float)Math.PI / 4;
             Scene.Camera.Aspect = (float)RenderSize.y / RenderSize.x;
         }
 
@@ -32,7 +28,7 @@ namespace YRay.Render
 
         private Vector3 RenderPixel(int x, int y, bool random)
         {
-            float sampleX = x + (random ? ((float)Rand.NextDouble() - 0.5F)  : 0);
+            float sampleX = x + (random ? ((float)Rand.NextDouble() - 0.5F) : 0);
             float sampleY = y + (random ? ((float)Rand.NextDouble() - 0.5F) : 0);
             float u = (sampleX / RenderSize.x) * 2 - 1;
             float v = (sampleY / RenderSize.y) * 2 - 1;
@@ -40,12 +36,14 @@ namespace YRay.Render
             return Scene.Raytrace(u, -v);
         }
 
-        public void Render(RenderResult result, int sample, bool merge, Func<Vector2i, bool> predicte, Action<float> action)
+        public void Render(RenderResult result, int sample, int totalSample, Func<Vector2i, bool> predicte, Action<float> action)
         {
+            Scene.InitPreRendering();
+
             var sw = new System.Diagnostics.Stopwatch();
             sw.Start();
 
-            var blockSize = new Vector2i(32, 1);
+            var blockSize = new Vector2i(1, 1);
             var blockNum = new Vector2i((int)Math.Ceiling((float)RenderSize.x / blockSize.x), (int)Math.Ceiling((float)RenderSize.y / blockSize.y));
 
             int count = 0;
@@ -70,9 +68,17 @@ namespace YRay.Render
 
                             for (int s = 0; s < sample; s++)
                             {
-                                pixel += RenderPixel(wolrd_x, wolrd_y, merge);
+                                pixel += RenderPixel(wolrd_x, wolrd_y, totalSample > 0);
                             }
-                            result[wolrd_x, wolrd_y] = (result[wolrd_x, wolrd_y] + pixel) / (sample + (merge ? 1 : 0));
+
+                            if (totalSample > 0)
+                            {
+                                result[wolrd_x, wolrd_y] = (result[wolrd_x, wolrd_y] * totalSample + pixel) / (totalSample + sample);
+                            }
+                            else
+                            {
+                                result[wolrd_x, wolrd_y] = pixel / sample;
+                            }
                         }
                     });
 
@@ -95,9 +101,11 @@ namespace YRay.Render
         {
         }
 
-        public List<Vector2i> CreateNoizePosArray(float e)
+        public bool CreateNoizePosArray(float e, out bool[,]  result)
         {
-            var result = new List<Vector2i>();
+             result = new bool[Size.x, Size.y];
+
+            bool any = false;
 
             for (int x = 0; x < Size.x; x++)
             {
@@ -131,14 +139,16 @@ namespace YRay.Render
 
                     noize = noize / count - this[x, y];
 
-                    if (noize.LengthSquare() > e * e)
+                    bool flag = noize.LengthSquare() > e * e;
+                    result[x, y] = flag;
+
+                    if(flag)
                     {
-                        result.Add(new Vector2i(x, y));
+                        any = true;
                     }
                 }
             }
-
-            return result;
+            return any;
         }
     }
 }
